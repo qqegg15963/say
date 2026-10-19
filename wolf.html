@@ -1,1 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>狼人殺法官記錄器</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-3 select-none flex flex-col justify-between" x-data="wolfGame()">
 
+    <div class="max-w-md mx-auto w-full space-y-3">
+        <!-- 頂部標題與主選單 -->
+        <header class="flex justify-between items-center bg-slate-800 px-4 py-2.5 rounded-xl shadow border border-slate-700">
+            <div>
+                <h1 class="text-base font-bold text-amber-400">🐺 狼人殺法官記錄器</h1>
+                <p class="text-[10px] text-slate-400">極速點擊唱票 · 個人投票軌跡追蹤</p>
+            </div>
+            <button @click="resetCurrentGame" class="bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1.5 rounded-lg transition font-medium text-slate-200 shadow active:scale-95">
+                🔄 開新局 (重置)
+            </button>
+        </header>
+
+        <!-- 1. 可折疊存活狀態控制區 -->
+        <section class="bg-slate-800 p-3 rounded-xl shadow border border-slate-700 space-y-2">
+            <div class="flex justify-between items-center cursor-pointer select-none" @click="isAliveCollapsed = !isAliveCollapsed">
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-bold text-slate-300">💀 存活狀態</span>
+                    <span class="text-[10px] text-slate-400">
+                        ( 存活: <span class="text-green-400 font-bold" x-text="players.filter(p=>p.alive).length"></span> / 12 )
+                    </span>
+                </div>
+                <button class="text-xs text-indigo-400 hover:text-indigo-300 font-medium">
+                    <span x-text="isAliveCollapsed ? '▶ 點擊編輯生死' : '▼ 折疊關閉'"></span>
+                </button>
+            </div>
+
+            <!-- 可折疊點擊切換生死區 -->
+            <div x-show="!isAliveCollapsed" class="grid grid-cols-6 gap-1 pt-1" x-transition>
+                <template x-for="p in players" :key="p.id">
+                    <button @click="toggleStatus(p.id)" 
+                            :class="p.alive ? 'bg-slate-700 text-slate-200 border-slate-600' : 'bg-red-950/60 text-red-400 border-red-800 line-through opacity-60'"
+                            class="border rounded py-1.5 text-center text-xs font-bold transition active:scale-95"
+                            x-text="`${p.id}號`">
+                    </button>
+                </template>
+            </div>
+        </section>
+
+        <!-- 2. 當前投票操作區 (極速連點唱票) -->
+        <section class="bg-slate-800 p-3.5 rounded-xl shadow space-y-3 border border-slate-700">
+            <!-- 輪次標籤快速切換區 -->
+            <div class="space-y-1.5">
+                <div class="flex justify-between items-center">
+                    <span class="text-xs font-bold text-indigo-400">唱票階段：</span>
+                    <button @click="archiveCurrentVotes" class="bg-emerald-600 hover:bg-emerald-500 text-xs px-2.5 py-1 rounded-lg font-bold transition shadow active:scale-95">
+                        💾 歸檔本輪票行
+                    </button>
+                </div>
+                <!-- 階段選擇橫向滾動區 -->
+                <div class="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                    <template x-for="(phase, idx) in phaseList" :key="idx">
+                        <button @click="currentRoundTag = phase" 
+                                :class="currentRoundTag === phase ? 'bg-amber-500 text-slate-900 font-bold border-amber-400' : 'bg-slate-700 text-slate-300 border-slate-600'"
+                                class="px-2.5 py-1 rounded-lg text-xs border whitespace-nowrap transition flex-shrink-0"
+                                x-text="phase">
+                        </button>
+                    </template>
+                </div>
+            </div>
+
+            <!-- 連點錄入區 -->
+            <div class="bg-slate-900/80 p-3 rounded-xl border border-indigo-500/30 space-y-2 text-center">
+                <div class="text-xs text-slate-300">
+                    請點擊 <span class="text-amber-400 font-bold text-base px-1" x-text="activeVoterId + '號'"></span> 投給誰：
+                </div>
+                
+                <!-- 1~12 大按鈕 (出局自動隱藏/停用) -->
+                <div class="grid grid-cols-6 gap-1.5 pt-1">
+                    <template x-for="p in players" :key="p.id">
+                        <button @click="recordVote(p.id)" 
+                                :disabled="!p.alive"
+                                :class="p.alive ? 'bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white shadow' : 'bg-slate-800 text-slate-600 border border-slate-800 opacity-20 cursor-not-allowed'"
+                                class="py-2 rounded-lg text-xs font-bold transition"
+                                x-text="p.id">
+                        </button>
+                    </template>
+                </div>
+
+                <!-- 棄票 / 切換 -->
+                <div class="flex gap-2 pt-1">
+                    <button @click="recordVote(null)" class="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-300 py-1.5 rounded-lg text-xs font-medium active:scale-95">
+                        🚫 棄票 / 未投
+                    </button>
+                    <button @click="prevVoter" x-show="canGoPrev" class="bg-slate-700 hover:bg-slate-600 text-slate-300 px-3 py-1.5 rounded-lg text-xs active:scale-95">
+                        ⬅️ 上一位
+                    </button>
+                </div>
+            </div>
+
+            <!-- 本輪目前票行明細 -->
+            <div class="grid grid-cols-4 gap-1 text-[11px]">
+                <template x-for="p in players" :key="p.id">
+                    <button @click="if(p.alive) activeVoterId = p.id" 
+                            :class="!p.alive ? 'border-red-900/30 bg-slate-950/40 opacity-40 line-through' : (activeVoterId === p.id ? 'border-amber-400 bg-amber-950/40' : 'border-slate-700 bg-slate-900/40')"
+                            class="border rounded px-1.5 py-1 flex justify-between items-center">
+                        <span class="text-slate-400 font-bold" x-text="`${p.id}:`"></span>
+                        <span x-show="!p.alive" class="text-red-400 text-[10px]">出局</span>
+                        <span x-show="p.alive" class="text-amber-300 font-semibold" x-text="currentVotes[p.id] ? `${currentVotes[p.id]}號` : '未'"></span>
+                    </button>
+                </template>
+            </div>
+        </section>
+
+        <!-- 3. 個人投票軌跡總覽 (點號碼直接看他至今投給誰) -->
+        <section class="bg-slate-800 p-3 rounded-xl shadow space-y-2 border border-slate-700">
+            <div class="flex justify-between items-center cursor-pointer select-none" @click="isTrackCollapsed = !isTrackCollapsed">
+                <h2 class="text-xs font-bold text-amber-400 flex items-center gap-1.5">
+                    <span>🔍 個人投票軌跡 (至今)</span>
+                </h2>
+                <button class="text-xs text-indigo-400 hover:text-indigo-300 font-medium">
+                    <span x-text="isTrackCollapsed ? '▶ 展開' : '▼ 折疊'"></span>
+                </button>
+            </div>
+
+            <div x-show="!isTrackCollapsed" class="space-y-2 pt-1" x-transition>
+                <!-- 號碼快速點選按鈕 -->
+                <div class="grid grid-cols-6 gap-1">
+                    <template x-for="i in 12" :key="i">
+                        <button @click="trackPlayerId = i" 
+                                :class="trackPlayerId === i ? 'bg-amber-500 text-slate-900 font-bold border-amber-400' : 'bg-slate-700 text-slate-300 border-slate-600'"
+                                class="py-1 rounded text-xs border transition"
+                                x-text="`${i}號`">
+                        </button>
+                    </template>
+                </div>
+
+                <!-- 該號碼本局投票軌跡清單 -->
+                <div class="bg-slate-900/80 p-2 rounded-lg border border-slate-700/80 space-y-1.5">
+                    <div class="font-bold text-amber-400 text-[11px]" x-text="`📜 ${trackPlayerId} 號本局至今的投票軌跡：`"></div>
+                    
+                    <div class="space-y-1 max-h-32 overflow-y-auto pr-1">
+                        <template x-for="(item, idx) in playerTrackList" :key="idx">
+                            <div class="flex justify-between items-center bg-slate-800 px-2.5 py-1 rounded text-[11px] border border-slate-700/50">
+                                <span class="font-bold text-indigo-300" x-text="item.tag"></span>
+                                <div class="font-semibold">
+                                    <span class="text-slate-400 text-[10px]">投給 ➔ </span>
+                                    <span :class="item.target ? 'text-amber-300 font-bold' : 'text-slate-500'" 
+                                          x-text="item.target ? `${item.target} 號` : '棄票/未投'"></span>
+                                </div>
+                            </div>
+                        </template>
+                        <div x-show="playerTrackList.length === 0" class="text-[10px] text-slate-500 text-center py-1.5">
+                            該號碼至今尚無歸檔的投票紀錄
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 4. 本局歷史票行紀錄流 (分輪次歸檔，預設折疊) -->
+        <section class="bg-slate-800 p-3 rounded-xl shadow space-y-2 border border-slate-700">
+            <div class="flex justify-between items-center cursor-pointer select-none" @click="isHistoryCollapsed = !isHistoryCollapsed">
+                <h2 class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                    <span>📜 分輪票行總覽</span>
+                    <span class="text-[10px] text-slate-400" x-text="`(${historyRounds.length} 輪)`"></span>
+                </h2>
+                <button class="text-xs text-indigo-400 hover:text-indigo-300 font-medium">
+                    <span x-text="isHistoryCollapsed ? '▶ 展開' : '▼ 折疊'"></span>
+                </button>
+            </div>
+
+            <div x-show="!isHistoryCollapsed" class="space-y-2 max-h-40 overflow-y-auto pr-1 pt-1" x-transition>
+                <template x-for="(round, rIdx) in historyRounds" :key="rIdx">
+                    <div class="bg-slate-900/70 p-2 rounded-lg border border-slate-700 space-y-1">
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="font-bold text-indigo-300" x-text="round.tag"></span>
+                            <button @click="historyRounds.splice(rIdx, 1); saveHistoryLocal()" class="text-slate-500 hover:text-red-400 text-xs">刪除這輪</button>
+                        </div>
+                        
+                        <div class="bg-slate-800/80 p-2 rounded text-[11px] space-y-1">
+                            <template x-for="tally in getTallies(round.votes)" :key="tally.targetId">
+                                <div class="flex justify-between text-slate-200">
+                                    <div>
+                                        <span class="font-bold text-amber-400 mr-1.5" x-text="`${tally.targetId}號`"></span>
+                                        <span class="text-slate-400 text-[10px]" x-text="`(${tally.voters.join(', ')} 投)`"></span>
+                                    </div>
+                                    <span class="font-bold text-indigo-400" x-text="`${tally.count} 票`"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+                <div x-show="historyRounds.length === 0" class="text-xs text-slate-500 text-center py-2">目前尚無歸檔的歷史票行</div>
+            </div>
+        </section>
+
+        <!-- 5. 擴大發言筆記區 (空間翻倍) -->
+        <section class="bg-slate-800 p-3.5 rounded-xl shadow space-y-2.5 border border-slate-700">
+            <h2 class="text-xs font-bold text-slate-200 flex justify-between items-center">
+                <span>📝 發言備忘筆記</span>
+                <span class="text-[10px] text-slate-400" x-text="`共 ${notes.length} 條`"></span>
+            </h2>
+            
+            <!-- 輸入區塊 -->
+            <div class="flex gap-2">
+                <select x-model="selectedPlayer" class="bg-slate-700 text-xs font-bold text-amber-400 rounded-lg px-2.5 py-1.5 outline-none border border-slate-600">
+                    <template x-for="i in 12" :key="i">
+                        <option :value="i" x-text="`${i}號`"></option>
+                    </template>
+                </select>
+                <input type="text" x-model="inputNote" @keyup.enter="addNote" placeholder="輸入關鍵字 (例: 悍跳預言家, 邏輯矛盾)" class="flex-1 bg-slate-700 text-xs text-slate-100 rounded-lg px-3 py-1.5 outline-none border border-slate-600 placeholder-slate-400">
+                <button @click="addNote" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow active:scale-95">記錄</button>
+            </div>
+
+            <!-- 筆記列表 (空間擴大至 max-h-56) -->
+            <div class="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                <template x-for="(note, index) in notes" :key="index">
+                    <div class="bg-slate-900/60 p-2 rounded-lg text-xs flex justify-between items-center border border-slate-700/60">
+                        <div class="flex items-center gap-2">
+                            <span class="font-bold text-amber-400 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/40" x-text="`${note.playerId}號`"></span>
+                            <span class="text-slate-200" x-text="note.text"></span>
+                        </div>
+                        <button @click="notes.splice(index, 1); saveNotesLocal()" class="text-slate-500 hover:text-red-400 px-1 text-xs">✕</button>
+                    </div>
+                </template>
+                <div x-show="notes.length === 0" class="text-[11px] text-slate-500 text-center py-3">尚無任何發言筆記</div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        function wolfGame() {
+            return {
+                activeVoterId: 1,
+                trackPlayerId: 1,
+                isAliveCollapsed: true,     // 存活狀態預設折疊，節省空間
+                isTrackCollapsed: false,   // 軌跡預設展開
+                isHistoryCollapsed: true,  // 分輪票行預設折疊，節省空間
+                phaseList: ['上警', '第一天', '第一天 PK', '第二天', '第二天 PK', '第三天', '第三天 PK', '第四天'],
+                currentRoundTag: '上警',
+                selectedPlayer: 1,
+                inputNote: '',
+                players: JSON.parse(localStorage.getItem('wolf_players') || JSON.stringify(Array.from({length: 12}, (_, i) => ({ id: i + 1, alive: true })))),
+                currentVotes: JSON.parse(localStorage.getItem('wolf_current_votes') || '{}'),
+                historyRounds: JSON.parse(localStorage.getItem('wolf_history_rounds') || '[]'),
+                notes: JSON.parse(localStorage.getItem('wolf_notes') || '[]'),
+
+                toggleStatus(id) {
+                    let p = this.players.find(x => x.id === id);
+                    if (p) {
+                        p.alive = !p.alive;
+                        this.savePlayersLocal();
+                        if (this.activeVoterId === id && !p.alive) {
+                            this.nextVoter();
+                        }
+                    }
+                },
+                recordVote(targetId) {
+                    this.currentVotes[this.activeVoterId] = targetId;
+                    this.saveCurrentVotesLocal();
+                    this.nextVoter();
+                },
+                nextVoter() {
+                    let nextId = this.activeVoterId + 1;
+                    while (nextId <= 12) {
+                        let p = this.players.find(x => x.id === nextId);
+                        if (p && p.alive) {
+                            this.activeVoterId = nextId;
+                            return;
+                        }
+                        nextId++;
+                    }
+                },
+                prevVoter() {
+                    let prevId = this.activeVoterId - 1;
+                    while (prevId >= 1) {
+                        let p = this.players.find(x => x.id === prevId);
+                        if (p && p.alive) {
+                            this.activeVoterId = prevId;
+                            return;
+                        }
+                        prevId--;
+                    }
+                },
+                get canGoPrev() {
+                    return this.players.some(p => p.id < this.activeVoterId && p.alive);
+                },
+                savePlayersLocal() {
+                    localStorage.setItem('wolf_players', JSON.stringify(this.players));
+                },
+                saveCurrentVotesLocal() {
+                    localStorage.setItem('wolf_current_votes', JSON.stringify(this.currentVotes));
+                },
+                archiveCurrentVotes() {
+                    if (Object.keys(this.currentVotes).length === 0) {
+                        alert('目前尚無任何投票記錄可歸檔！');
+                        return;
+                    }
+                    this.historyRounds.unshift({
+                        tag: this.currentRoundTag,
+                        votes: { ...this.currentVotes }
+                    });
+                    this.saveHistoryLocal();
+
+                    this.currentVotes = {};
+                    localStorage.removeItem('wolf_current_votes');
+                    
+                    let firstAlive = this.players.find(p => p.alive);
+                    this.activeVoterId = firstAlive ? firstAlive.id : 1;
+                    
+                    let currentIndex = this.phaseList.indexOf(this.currentRoundTag);
+                    if (currentIndex !== -1 && currentIndex < this.phaseList.length - 1) {
+                        this.currentRoundTag = this.phaseList[currentIndex + 1];
+                    }
+                },
+                saveHistoryLocal() {
+                    localStorage.setItem('wolf_history_rounds', JSON.stringify(this.historyRounds));
+                },
+                get playerTrackList() {
+                    let list = [];
+                    let sortedRounds = [...this.historyRounds].reverse();
+                    
+                    sortedRounds.forEach(round => {
+                        let target = round.votes[this.trackPlayerId];
+                        if (target !== undefined) {
+                            list.push({
+                                tag: round.tag,
+                                target: target
+                            });
+                        }
+                    });
+                    return list;
+                },
+                getTallies(votesObj) {
+                    let counts = {};
+                    for (let voterId in votesObj) {
+                        let targetId = votesObj[voterId];
+                        if (!targetId) continue;
+                        if (!counts[targetId]) {
+                            counts[targetId] = { targetId: Number(targetId), count: 0, voters: [] };
+                        }
+                        counts[targetId].count += 1;
+                        counts[targetId].voters.push(Number(voterId));
+                    }
+                    return Object.values(counts).sort((a, b) => b.count - a.count);
+                },
+                addNote() {
+                    if (!this.inputNote.trim()) return;
+                    this.notes.unshift({ playerId: this.selectedPlayer, text: this.inputNote });
+                    this.inputNote = '';
+                    this.saveNotesLocal();
+                },
+                saveNotesLocal() {
+                    localStorage.setItem('wolf_notes', JSON.stringify(this.notes));
+                },
+                resetCurrentGame() {
+                    if (confirm('確定要開新一局嗎？這將清空當前局的所有生死狀態、票行與筆記。')) {
+                        this.currentVotes = {};
+                        this.historyRounds = [];
+                        this.notes = [];
+                        this.players.forEach(p => p.alive = true);
+                        this.activeVoterId = 1;
+                        this.trackPlayerId = 1;
+                        this.currentRoundTag = '上警';
+                        this.isAliveCollapsed = true;
+                        localStorage.clear();
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>
