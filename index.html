@@ -10,11 +10,19 @@
 <body class="bg-slate-900 text-slate-100 min-h-screen p-3 select-none flex flex-col justify-between" x-data="wolfGame()">
 
     <div class="max-w-md mx-auto w-full space-y-3">
-        <!-- 頂部標題與主選單 -->
+        <!-- 頂部標題與人數切換 -->
         <header class="flex justify-between items-center bg-slate-800 px-4 py-2.5 rounded-xl shadow border border-slate-700">
             <div>
                 <h1 class="text-base font-bold text-amber-400">🐺 狼人殺法官記錄器</h1>
-                <p class="text-[10px] text-slate-400">極速點擊唱票 · 個人投票軌跡追蹤</p>
+                <!-- 人數選擇器 -->
+                <div class="flex items-center gap-1.5 mt-0.5">
+                    <span class="text-[10px] text-slate-400">總人數：</span>
+                    <select x-model.number="playerCount" @change="updatePlayerCount()" class="bg-slate-700 text-xs text-amber-300 font-bold rounded px-1.5 py-0.5 outline-none border border-slate-600">
+                        <template x-for="n in [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]" :key="n">
+                            <option :value="n" x-text="`${n} 人局`"></option>
+                        </template>
+                    </select>
+                </div>
             </div>
             <button @click="resetCurrentGame" class="bg-slate-700 hover:bg-slate-600 text-xs px-3 py-1.5 rounded-lg transition font-medium text-slate-200 shadow active:scale-95">
                 🔄 開新局 (重置)
@@ -27,7 +35,7 @@
                 <div class="flex items-center gap-2">
                     <span class="text-xs font-bold text-slate-300">💀 存活狀態</span>
                     <span class="text-[10px] text-slate-400">
-                        ( 存活: <span class="text-green-400 font-bold" x-text="players.filter(p=>p.alive).length"></span> / 12 )
+                        ( 存活: <span class="text-green-400 font-bold" x-text="players.filter(p=>p.alive).length"></span> / <span x-text="playerCount"></span> )
                     </span>
                 </div>
                 <button class="text-xs text-indigo-400 hover:text-indigo-300 font-medium">
@@ -35,7 +43,7 @@
                 </button>
             </div>
 
-            <!-- 可折疊點擊切換生死區 -->
+            <!-- 動態顯示 1~N 人數生死按鈕 -->
             <div x-show="!isAliveCollapsed" class="grid grid-cols-6 gap-1 pt-1" x-transition>
                 <template x-for="p in players" :key="p.id">
                     <button @click="toggleStatus(p.id)" 
@@ -57,7 +65,6 @@
                         💾 歸檔本輪票行
                     </button>
                 </div>
-                <!-- 階段選擇橫向滾動區 -->
                 <div class="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
                     <template x-for="(phase, idx) in phaseList" :key="idx">
                         <button @click="currentRoundTag = phase" 
@@ -75,7 +82,7 @@
                     請點擊 <span class="text-amber-400 font-bold text-base px-1" x-text="activeVoterId + '號'"></span> 投給誰：
                 </div>
                 
-                <!-- 1~12 大按鈕 (出局自動隱藏/停用) -->
+                <!-- 動態生成的 1~N 人數大按鈕 -->
                 <div class="grid grid-cols-6 gap-1.5 pt-1">
                     <template x-for="p in players" :key="p.id">
                         <button @click="recordVote(p.id)" 
@@ -112,7 +119,7 @@
             </div>
         </section>
 
-        <!-- 3. 個人投票軌跡總覽 (點號碼直接看他至今投給誰) -->
+        <!-- 3. 個人投票軌跡總覽 -->
         <section class="bg-slate-800 p-3 rounded-xl shadow space-y-2 border border-slate-700">
             <div class="flex justify-between items-center cursor-pointer select-none" @click="isTrackCollapsed = !isTrackCollapsed">
                 <h2 class="text-xs font-bold text-amber-400 flex items-center gap-1.5">
@@ -126,11 +133,11 @@
             <div x-show="!isTrackCollapsed" class="space-y-2 pt-1" x-transition>
                 <!-- 號碼快速點選按鈕 -->
                 <div class="grid grid-cols-6 gap-1">
-                    <template x-for="i in 12" :key="i">
-                        <button @click="trackPlayerId = i" 
-                                :class="trackPlayerId === i ? 'bg-amber-500 text-slate-900 font-bold border-amber-400' : 'bg-slate-700 text-slate-300 border-slate-600'"
+                    <template x-for="p in players" :key="p.id">
+                        <button @click="trackPlayerId = p.id" 
+                                :class="trackPlayerId === p.id ? 'bg-amber-500 text-slate-900 font-bold border-amber-400' : 'bg-slate-700 text-slate-300 border-slate-600'"
                                 class="py-1 rounded text-xs border transition"
-                                x-text="`${i}號`">
+                                x-text="`${p.id}號`">
                         </button>
                     </template>
                 </div>
@@ -158,7 +165,7 @@
             </div>
         </section>
 
-        <!-- 4. 本局歷史票行紀錄流 (分輪次歸檔，預設折疊) -->
+        <!-- 4. 本局歷史票行紀錄流 -->
         <section class="bg-slate-800 p-3 rounded-xl shadow space-y-2 border border-slate-700">
             <div class="flex justify-between items-center cursor-pointer select-none" @click="isHistoryCollapsed = !isHistoryCollapsed">
                 <h2 class="text-xs font-bold text-slate-300 flex items-center gap-1.5">
@@ -195,25 +202,23 @@
             </div>
         </section>
 
-        <!-- 5. 擴大發言筆記區 (空間翻倍) -->
+        <!-- 5. 擴大發言筆記區 -->
         <section class="bg-slate-800 p-3.5 rounded-xl shadow space-y-2.5 border border-slate-700">
             <h2 class="text-xs font-bold text-slate-200 flex justify-between items-center">
                 <span>📝 發言備忘筆記</span>
                 <span class="text-[10px] text-slate-400" x-text="`共 ${notes.length} 條`"></span>
             </h2>
             
-            <!-- 輸入區塊 -->
             <div class="flex gap-2">
                 <select x-model="selectedPlayer" class="bg-slate-700 text-xs font-bold text-amber-400 rounded-lg px-2.5 py-1.5 outline-none border border-slate-600">
-                    <template x-for="i in 12" :key="i">
-                        <option :value="i" x-text="`${i}號`"></option>
+                    <template x-for="p in players" :key="p.id">
+                        <option :value="p.id" x-text="`${p.id}號`"></option>
                     </template>
                 </select>
                 <input type="text" x-model="inputNote" @keyup.enter="addNote" placeholder="輸入關鍵字 (例: 悍跳預言家, 邏輯矛盾)" class="flex-1 bg-slate-700 text-xs text-slate-100 rounded-lg px-3 py-1.5 outline-none border border-slate-600 placeholder-slate-400">
                 <button @click="addNote" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition shadow active:scale-95">記錄</button>
             </div>
 
-            <!-- 筆記列表 (空間擴大至 max-h-56) -->
             <div class="space-y-1.5 max-h-56 overflow-y-auto pr-1">
                 <template x-for="(note, index) in notes" :key="index">
                     <div class="bg-slate-900/60 p-2 rounded-lg text-xs flex justify-between items-center border border-slate-700/60">
@@ -232,20 +237,42 @@
     <script>
         function wolfGame() {
             return {
+                playerCount: JSON.parse(localStorage.getItem('wolf_player_count') || '12'),
                 activeVoterId: 1,
                 trackPlayerId: 1,
-                isAliveCollapsed: true,     // 存活狀態預設折疊，節省空間
-                isTrackCollapsed: false,   // 軌跡預設展開
-                isHistoryCollapsed: true,  // 分輪票行預設折疊，節省空間
+                isAliveCollapsed: true,
+                isTrackCollapsed: false,
+                isHistoryCollapsed: true,
                 phaseList: ['上警', '第一天', '第一天 PK', '第二天', '第二天 PK', '第三天', '第三天 PK', '第四天'],
                 currentRoundTag: '上警',
                 selectedPlayer: 1,
                 inputNote: '',
-                players: JSON.parse(localStorage.getItem('wolf_players') || JSON.stringify(Array.from({length: 12}, (_, i) => ({ id: i + 1, alive: true })))),
+                players: [],
                 currentVotes: JSON.parse(localStorage.getItem('wolf_current_votes') || '{}'),
                 historyRounds: JSON.parse(localStorage.getItem('wolf_history_rounds') || '[]'),
                 notes: JSON.parse(localStorage.getItem('wolf_notes') || '[]'),
 
+                init() {
+                    let savedPlayers = JSON.parse(localStorage.getItem('wolf_players'));
+                    if (savedPlayers && savedPlayers.length === this.playerCount) {
+                        this.players = savedPlayers;
+                    } else {
+                        this.initPlayers();
+                    }
+                },
+                initPlayers() {
+                    this.players = Array.from({length: this.playerCount}, (_, i) => ({ id: i + 1, alive: true }));
+                    this.savePlayersLocal();
+                },
+                updatePlayerCount() {
+                    localStorage.setItem('wolf_player_count', this.playerCount);
+                    this.initPlayers();
+                    this.activeVoterId = 1;
+                    this.trackPlayerId = 1;
+                    this.selectedPlayer = 1;
+                    this.currentVotes = {};
+                    localStorage.removeItem('wolf_current_votes');
+                },
                 toggleStatus(id) {
                     let p = this.players.find(x => x.id === id);
                     if (p) {
@@ -263,7 +290,7 @@
                 },
                 nextVoter() {
                     let nextId = this.activeVoterId + 1;
-                    while (nextId <= 12) {
+                    while (nextId <= this.playerCount) {
                         let p = this.players.find(x => x.id === nextId);
                         if (p && p.alive) {
                             this.activeVoterId = nextId;
@@ -359,12 +386,13 @@
                         this.currentVotes = {};
                         this.historyRounds = [];
                         this.notes = [];
-                        this.players.forEach(p => p.alive = true);
+                        this.initPlayers();
                         this.activeVoterId = 1;
                         this.trackPlayerId = 1;
                         this.currentRoundTag = '上警';
                         this.isAliveCollapsed = true;
                         localStorage.clear();
+                        localStorage.setItem('wolf_player_count', this.playerCount);
                     }
                 }
             }
